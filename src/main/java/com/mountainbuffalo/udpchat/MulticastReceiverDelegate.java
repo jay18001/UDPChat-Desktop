@@ -6,9 +6,12 @@
 package com.mountainbuffalo.udpchat;
 
 /**
- *
+ * Interface for multi-cast message listeners.
+ * 
  * @author Justin
  */
 public interface MulticastReceiverDelegate {
+
     void didReciveMessage(Message message);
+    
 }

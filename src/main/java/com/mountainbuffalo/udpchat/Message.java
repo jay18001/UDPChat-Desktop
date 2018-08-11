@@ -1,63 +1,70 @@
-package com.mountainbuffalo.udpchat;
-
 /*
  * To change this license header, choose License Headers in Project Properties.
  * To change this template file, choose Tools | Templates
  * and open the template in the editor.
  */
+package com.mountainbuffalo.udpchat;
+
+import com.fasterxml.jackson.annotation.*;
+import java.util.Date;
+import java.util.Objects;
+import java.util.Optional;
 
 /**
+ * A network message object.
  *
  * @author Justin
  */
-
-import com.fasterxml.jackson.annotation.*;
-import java.util.Optional;
-import java.util.Date;
-
-
+@JsonAutoDetect(fieldVisibility = JsonAutoDetect.Visibility.ANY, getterVisibility = JsonAutoDetect.Visibility.NONE)
 public class Message {
-  public MessageType type;
-  @JsonIgnore
-  public Optional<String> value = Optional.empty();
-  public String user;
-  public Date timestamp;
-  
-  @JsonIgnore
-  public static Message build(MessageType type, String value, String user) {
-      Message message = new Message();
-      message.type = type;
-      message.value = Optional.of(value);
-      message.user = user;
-      message.timestamp = new Date();
-      return message;
-  }
-  
-  @JsonIgnore
-  public static Message build(MessageType type, String user) {
-      Message message = new Message();
-      message.type = type;
-      message.value = Optional.empty();
-      message.user = user;
-      message.timestamp = new Date();
-      return message;
-  }
-  
-  @JsonProperty("value")
-  private void setParsedValue(String value) {
-      if (value == null) {
-        this.value = Optional.empty();
-      } else {
-        this.value = Optional.of(value);
-      }
-  }
-  
-  @JsonProperty("value")
-  private String getParsedValue() {
-     if (value.isPresent()) {
-         return value.get();
-     }
-     return null;
-  }
-  
+
+    private final MessageType type;
+    private final String user;
+    @JsonProperty("value")
+    private final String value;
+    private final Date timestamp;
+    
+    private Message() {
+        this(MessageType.INVALID, "");
+    }
+
+    public Message(MessageType type, String user) {
+        this(type, user, "");
+    }
+    
+    public Message(MessageType type, String user, String value) {
+        this(type, user, value, new Date());
+    }
+    
+    public Message(MessageType type, String user, String value, Date timestamp) {
+        // Validate.
+        Objects.requireNonNull(type, "The message type may not be null!");
+        Objects.requireNonNull(user, "The message user may not be null!");
+        Objects.requireNonNull(value, "The message value may not be null!");
+        Objects.requireNonNull(timestamp, "The message timestamp may not be null!");
+        
+        // Assign.
+        this.type = type;
+        this.user = user;
+        this.value = value;
+        this.timestamp = timestamp;
+    }
+
+    public MessageType getType() {
+        return type;
+    }
+    
+    public String getUser() {
+        return user;
+    }
+
+    @JsonIgnore
+    public Optional<String> getValue() {
+        return Optional.of(value);
+    }
+
+    public Date getTimestamp() {
+        return timestamp;
+    }
+
 }

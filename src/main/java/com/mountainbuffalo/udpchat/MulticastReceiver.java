@@ -5,83 +5,112 @@ package com.mountainbuffalo.udpchat;
  * To change this template file, choose Tools | Templates
  * and open the template in the editor.
  */
-
 /**
  *
  * @author Justin
  */
-
-import java.io.*;
-import java.net.*;
+import java.io.Closeable;
+import java.io.IOException;
+import java.net.DatagramPacket;
+import java.net.InetAddress;
+import java.net.MulticastSocket;
+import java.net.SocketException;
+import java.util.Objects;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import com.fasterxml.jackson.databind.*;
-import java.util.Base64;
 
-public class MulticastReceiver extends Thread {
-    protected MulticastSocket socket = null;
-    protected byte[] buf = new byte[8192];
-    private InetAddress group;
-    public MulticastReceiverDelegate delegate;
-    private final String groupAdress = "239.225.236.1";
-    private final int groupPort = 3240;
-    private ObjectMapper mapper;
-    
-    public MulticastReceiver() {
-        mapper = new ObjectMapper();
-        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        mapper.configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS , false);
-    }
-    
-    public void open() {
+public final class MulticastReceiver extends Thread implements Closeable {
+
+    private final byte[] buffer = new byte[Settings.BUFFER_SIZE];
+
+    private final Logger logger;
+    private final int port;
+    private final InetAddress group;
+    private final MulticastSocket socket;
+    private final MessageSerializer serializer;
+    private final MulticastReceiverDelegate delegate;
+
+    public MulticastReceiver(int port, InetAddress group, MessageSerializer serializer, MulticastReceiverDelegate delegate) throws IOException {
+        // Validate the address.
+        Objects.requireNonNull(group, "The address of the group to join may not be null!");
+        Objects.requireNonNull(serializer, "The message serializer instance may not be null!");
+        Objects.requireNonNull(delegate, "The connection delegate may not be null!");
+
+        // Assign parameters.
+        this.logger = Logger.getLogger("MulticastConnection " + group + ":" + port);
+        this.port = port;
+        this.group = group;
+        this.serializer = serializer;
+        this.delegate = delegate;
+
+        // Create the connection.
+        this.socket = new MulticastSocket(port);
+        
+        // Join the group.
         try {
-         socket = new MulticastSocket(groupPort);
-         group = InetAddress.getByName(groupAdress);
-         socket.joinGroup(group);
+            this.socket.joinGroup(group);
         } catch (IOException ex) {
-            Logger.getLogger(MulticastReceiver.class.getName()).log(Level.SEVERE, null, ex);
+            this.logger.log(Level.SEVERE, "Unable to join group: {0}", group);
+            throw ex;
         }
     }
-    
+
+    @Override
     public void close() {
-        try {
-            socket.leaveGroup(group);
-            socket.close();
-        } catch (IOException ex) {
-            Logger.getLogger(MulticastReceiver.class.getName()).log(Level.SEVERE, null, ex);
-        }
+        // Step 0. Close the connection.
+        this.socket.close();
     }
-    
+
     @Override
     public void run() {
-        try {
-            while (true) {
-                DatagramPacket packet = new DatagramPacket(buf, buf.length);
-                socket.receive(packet);
-                String input = new String(packet.getData(), 0, packet.getLength());
-                byte[] decoded = Base64.getDecoder().decode(input);
-                String output = new String(decoded);
-                
-                System.out.println(output);
-                Message value = mapper.readValue(output, Message.class);
-                delegate.didReciveMessage(value);
-                if ("end".equals(output)) {
-                    break;
-                }
+        // Log Start
+        this.logger.log(Level.INFO, "Multicast Connection Started!");
+        
+        // Loop
+        while (true) {
+            try {
+                final DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
+                this.socket.receive(packet);
+                final String rawdata = new String(packet.getData(), packet.getOffset(), packet.getLength());
+                this.logger.log(Level.INFO, "Recieved Raw JSON: {0}", rawdata);
+                final Message message = this.serializer.deserialize(rawdata);
+                this.delegate.didReciveMessage(message);
+            } catch (SocketException ex) {
+                this.logger.log(Level.INFO, "Multicast Connection Closed!");
+                break;
+            } catch (IOException ex) {
+                this.logger.log(Level.SEVERE, "Multicast Connection Terminated!\n\tReason: {0}", ex.getMessage());
+                break;
             }
-            
-        } catch (IOException ex) {
-            Logger.getLogger(MulticastReceiver.class.getName()).log(Level.SEVERE, null, ex);
         }
+        
+        // Log Stop
+        this.logger.log(Level.INFO, "Multicast Connection Ended!");
     }
-    
+
     public void sendMessage(Message message) {
+        // Validate.
+        Objects.requireNonNull(message, "Cannot send a null message!");
+
+        // Serialize.
+        final String rawData;
         try {
-            byte[] sendBuf = Base64.getEncoder().encode(mapper.writeValueAsBytes(message));
-            DatagramPacket packet = new DatagramPacket(sendBuf, sendBuf.length, group, groupPort);
-            socket.send(packet);
+            rawData = this.serializer.serialize(message);
+        } catch (IOException e) {
+            this.logger.log(Level.WARNING, "Unable to serialize message: {0}", message);
+            return;
+        }
+
+        // Encode.
+        final byte[] encoded = rawData.getBytes();
+
+        // Transmit.
+        // Do Stuff.
+        try {
+            socket.send(new DatagramPacket(encoded, encoded.length, group, port));
         } catch (IOException ex) {
-            Logger.getLogger(MulticastReceiver.class.getName()).log(Level.SEVERE, null, ex);
+            Logger.getLogger(MulticastReceiver.class.getName()).log(Level.SEVERE, "Unable to transmit message!\n\tMessage: {0}\n\tCause: {1}", new Object[]{rawData, ex});
         }
     }
+
 }
